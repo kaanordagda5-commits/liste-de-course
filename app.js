@@ -10,10 +10,10 @@ import { firebaseConfig, allowedEmails } from "./config.js";
 
 // Une seule liste commune pour la famille.
 const LIST = "lists/famille/items";
-const VERSION = "v13";
+const VERSION = "v14";
 // Document spécial (dans la même collection) qui garde les réglages communs, comme l'ordre des rayons.
 const SETTINGS_ID = "_reglages";
-// Couleur de chaque personne : vert pour Mattia, bleu clair pour Francesca.
+// Couleur de chaque personne : orange saumon pour Mattia, bleu clair pour Francesca.
 const PERSON_CLASS = { "kaanordagda5@gmail.com": "p-green", "francesca.jardini@gmail.com": "p-blue" };
 const NAME_CLASS = { mattia: "p-green", ma: "p-green", francesca: "p-blue" };
 
@@ -21,9 +21,9 @@ const NAME_CLASS = { mattia: "p-green", ma: "p-green", francesca: "p-blue" };
 // même si le téléphone a gardé une ancienne page en mémoire.
 const personStyle = document.createElement("style");
 personStyle.textContent = `
-  :root { --green-soft: #e3f3e7; --blue-soft: #e1f0fc; }
-  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --green-soft: #1d3324; --blue-soft: #1a2c3a; } }
-  :root[data-theme="dark"] { --green-soft: #1d3324; --blue-soft: #1a2c3a; }
+  :root { --green-soft: #fde4da; --blue-soft: #e1f0fc; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --green-soft: #3b2620; --blue-soft: #1a2c3a; } }
+  :root[data-theme="dark"] { --green-soft: #3b2620; --blue-soft: #1a2c3a; }
   li.row.p-green { background: var(--green-soft); }
   li.row.p-blue { background: var(--blue-soft); }
   .typeahead { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
