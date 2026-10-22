@@ -10,7 +10,7 @@ import { firebaseConfig, allowedEmails } from "./config.js";
 
 // Une seule liste commune pour la famille.
 const LIST = "lists/famille/items";
-const VERSION = "v19";
+const VERSION = "v20";
 // Document spécial (dans la même collection) qui garde les réglages communs, comme l'ordre des rayons.
 const SETTINGS_ID = "_reglages";
 // Couleur de chaque personne : orange saumon pour Mattia, bleu clair pour Francesca.
@@ -349,6 +349,8 @@ $("main").querySelector(".who").before(editBar);
 editBtn.onclick = () => { editMode = !editMode; confirmDelete = null; render(); window.scrollTo(0, 0); };
 
 // Les articles achetés restent en mémoire ("history") pour les suggestions ; les essentiels vont dans « À racheter ? ».
+// Bouton plein, vert, bien visible (réglé ici pour qu'il s'applique même avec une ancienne page en cache).
+$("finish").className = "btn";
 $("finish").addEventListener("click", () => {
   for (const it of items.filter(i => i.status === "cart")) write(it.id, { status: it.staple ? "stock" : "history" });
 });
