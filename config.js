@@ -14,4 +14,5 @@ export const firebaseConfig = {
 // 2. Les comptes Google autorisés à utiliser la liste (les mêmes que dans firestore.rules).
 export const allowedEmails = [
   "kaanordagda5@gmail.com",
+  "francesca.jardini@gmail.com",
 ];
