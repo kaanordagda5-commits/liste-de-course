@@ -10,7 +10,7 @@ import { firebaseConfig, allowedEmails } from "./config.js";
 
 // Une seule liste commune pour la famille.
 const LIST = "lists/famille/items";
-const VERSION = "v9";
+const VERSION = "v10";
 // Document spécial (dans la même collection) qui garde les réglages communs, comme l'ordre des rayons.
 const SETTINGS_ID = "_reglages";
 // Couleur de chaque personne : vert pour Mattia, bleu clair pour Francesca.
@@ -39,6 +39,21 @@ personStyle.textContent = `
   .order button { width: 40px; height: 40px; border-radius: 10px; border: 1.5px solid var(--line); background: none; color: var(--fg); font-size: 1.1rem; cursor: pointer; }
   .order button:disabled { opacity: 0.3; cursor: default; }
   .editbar { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 22px; }
+  .aisle-card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .aisle-head { display: flex; align-items: center; gap: 6px; padding: 8px; background: var(--accent-soft); }
+  .aisle-head input { flex: 1; min-width: 0; font: inherit; font-weight: 700; padding: 8px 10px; border-radius: 10px; border: 1.5px solid transparent; background: transparent; color: var(--fg); }
+  .aisle-head input:focus { border-color: var(--accent); background: var(--card); outline: none; }
+  .aisle-head button { flex: none; width: 40px; height: 40px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--card); color: var(--fg); font-size: 1.05rem; cursor: pointer; display: grid; place-items: center; }
+  .aisle-head button svg { width: 18px; height: 18px; }
+  .aisle-head button:disabled { opacity: 0.3; cursor: default; }
+  .aisle-items { list-style: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; }
+  .aisle-items li { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 14px; border-top: 1px solid var(--line); }
+  .aisle-items li span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .aisle-items .none { color: var(--muted); font-size: 0.9rem; padding: 10px 14px; }
+  .aisle-items select { flex: none; max-width: 52%; font: inherit; font-size: 0.9rem; padding: 7px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--card); color: var(--fg); }
+  .manager { display: flex; flex-direction: column; gap: 14px; }
+  .confirm { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 14px; border-top: 1px solid var(--line); font-size: 0.9rem; }
+  .confirm .danger { background: var(--warn); color: #fff; border: 0; border-radius: 10px; padding: 8px 12px; font-weight: 700; cursor: pointer; }
 `;
 document.head.append(personStyle);
 
@@ -53,13 +68,19 @@ const AISLES = [
   ["Maison et hygiène", "papier essuie lessive vaisselle eponge savon shampoing dentifrice brosse couche poubelle mouchoir douche deodorant"],
 ];
 const DEFAULT_ORDER = AISLES.map(a => a[0]).concat(["Divers"]);
-let aisleOrder = DEFAULT_ORDER.slice();
+// Un rayon a un identifiant fixe (stocké sur les articles) et un nom modifiable.
+let aisleOrder = DEFAULT_ORDER.slice();   // identifiants, dans l'ordre du magasin
+let aisleNames = {};                      // identifiant -> nom choisi (sinon le nom d'origine)
+let hiddenAisles = [];                    // rayons d'origine supprimés
+const aisleName = id => aisleNames[id] || id;
+// Rayon réellement affiché pour un article (un rayon supprimé renvoie vers « Divers »).
+const aisleOf = it => (it.aisle && aisleOrder.includes(it.aisle)) ? it.aisle : "Divers";
 const norm = s => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
 function guessAisle(name) {
   const words = norm(name).split(/[^a-z]+/);
   for (const [aisle, list] of AISLES) {
     const keys = list.split(" ");
-    if (words.some(w => keys.some(k => w === k || w === k + "s" || w === k + "x"))) return aisle;
+    if (words.some(w => keys.some(k => w === k || w === k + "s" || w === k + "x"))) return hiddenAisles.includes(aisle) ? "Divers" : aisle;
   }
   return "Divers";
 }
@@ -155,6 +176,8 @@ onAuthStateChanged(auth, user => {
   stopList = onSnapshot(col, snap => {
     const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     const settings = all.find(d => d.id === SETTINGS_ID);
+    hiddenAisles = (settings && Array.isArray(settings.hiddenAisles)) ? settings.hiddenAisles : [];
+    aisleNames = (settings && settings.aisleNames) || {};
     aisleOrder = mergeOrder(settings && settings.aisleOrder);
     items = all.filter(d => d.id !== SETTINGS_ID && d.kind !== "settings");
     setStatus(snap.metadata.fromCache ? "Hors ligne : vos changements partiront dès le retour du réseau." : "");
@@ -262,19 +285,49 @@ if (Recognition) {
 
 // --- Rayons : changer le rayon d'un article et l'ordre des rayons ---
 function mergeOrder(saved) {
-  const list = Array.isArray(saved) ? saved.filter(a => DEFAULT_ORDER.includes(a)) : [];
-  return list.concat(DEFAULT_ORDER.filter(a => !list.includes(a)));
+  const known = a => DEFAULT_ORDER.includes(a) || a.startsWith("r-");
+  const list = Array.isArray(saved) ? saved.filter(a => known(a) && !hiddenAisles.includes(a)) : [];
+  const rest = DEFAULT_ORDER.filter(a => !list.includes(a) && !hiddenAisles.includes(a));
+  const merged = list.concat(rest);
+  // « Divers » existe toujours et reste en dernier par défaut.
+  if (!merged.includes("Divers")) merged.push("Divers");
+  return merged;
 }
-function saveOrder(order) {
-  aisleOrder = order;
+function saveSettings() {
   render();
-  setDoc(doc(col, SETTINGS_ID), { kind: "settings", aisleOrder: order }).catch(failed);
+  setDoc(doc(col, SETTINGS_ID), { kind: "settings", aisleOrder, aisleNames, hiddenAisles }).catch(failed);
 }
+function saveOrder(order) { aisleOrder = order; saveSettings(); }
+function renameAisle(id, name) {
+  const clean = name.trim().replace(/\s+/g, " ");
+  if (!clean || clean === aisleName(id)) return;
+  aisleNames = { ...aisleNames, [id]: clean };
+  saveSettings();
+}
+function addAisle(name) {
+  const clean = name.trim().replace(/\s+/g, " ");
+  if (!clean) return;
+  const id = "r-" + Date.now().toString(36);
+  aisleNames = { ...aisleNames, [id]: clean };
+  const o = aisleOrder.filter(a => a !== "Divers"); o.push(id, "Divers");
+  aisleOrder = o;
+  saveSettings();
+}
+function deleteAisle(id) {
+  if (id === "Divers") return;
+  for (const it of items.filter(i => i.aisle === id)) write(it.id, { aisle: "Divers" });
+  aisleOrder = aisleOrder.filter(a => a !== id);
+  if (DEFAULT_ORDER.includes(id)) hiddenAisles = hiddenAisles.concat([id]);
+  const n = { ...aisleNames }; delete n[id]; aisleNames = n;
+  confirmDelete = null;
+  saveSettings();
+}
+let confirmDelete = null;   // rayon dont on demande la confirmation de suppression
 const editBar = el("div", "editbar");
 const editBtn = el("button", "ghost"); editBtn.type = "button"; editBtn.id = "editAisles";
 editBar.append(editBtn);
 $("main").querySelector(".who").before(editBar);
-editBtn.onclick = () => { editMode = !editMode; render(); };
+editBtn.onclick = () => { editMode = !editMode; confirmDelete = null; render(); window.scrollTo(0, 0); };
 
 // Les articles achetés restent en mémoire ("history") pour les suggestions ; les essentiels vont dans « À racheter ? ».
 $("finish").addEventListener("click", () => {
@@ -292,15 +345,6 @@ function row(it) {
   const nm = el("span", "name"); nm.textContent = it.name; tick.append(nm);
   tick.onclick = () => write(it.id, { status: it.status === "cart" ? "todo" : "cart" });
   li.append(tick);
-  if (editMode) {
-    const sel = el("select", "aisle-select");
-    sel.setAttribute("aria-label", "Rayon de " + it.name);
-    for (const a of aisleOrder) { const o = document.createElement("option"); o.value = a; o.textContent = a; sel.append(o); }
-    sel.value = it.aisle || "Divers";
-    sel.onchange = () => write(it.id, { aisle: sel.value });
-    li.append(sel);
-    return li;
-  }
   const star = el("button", "icon", it.staple ? STAR_ON : STAR);
   star.type = "button"; star.setAttribute("aria-pressed", it.staple ? "true" : "false");
   star.setAttribute("aria-label", "Article essentiel : " + it.name);
@@ -330,10 +374,10 @@ function render() {
     box.append(el("div", "empty", "<strong>Rien à acheter pour l'instant</strong>" + hint));
   } else {
     for (const aisle of aisleOrder) {
-      const these = todo.filter(i => (i.aisle || "Divers") === aisle).sort(byName);
+      const these = todo.filter(i => aisleOf(i) === aisle).sort(byName);
       if (!these.length) continue;
       const g = el("div", "group");
-      const h = el("h2"); h.textContent = aisle; g.append(h);
+      const h = el("h2"); h.textContent = aisleName(aisle); g.append(h);
       const ul = el("ul"); these.forEach(i => ul.append(row(i))); g.append(ul);
       box.append(g);
     }
@@ -353,25 +397,73 @@ function render() {
     sg.append(c);
   });
 
-  editBtn.textContent = editMode ? "Terminé" : "Ranger les rayons";
-  const old = $("orderBox"); if (old) old.remove();
-  if (editMode) {
-    const box2 = el("section"); box2.id = "orderBox"; box2.style.marginTop = "22px";
-    const h = el("h2"); h.textContent = "Ordre des rayons dans votre magasin"; box2.append(h);
-    const p = el("p", "note"); p.textContent = "Choisissez le rayon de chaque article dans la liste au-dessus, et rangez les rayons ici dans l'ordre où vous les traversez."; box2.append(p);
-    const ul = el("ul", "order"); ul.style.marginTop = "8px";
-    aisleOrder.forEach((a, i) => {
-      const li = el("li"); const t = el("span"); t.textContent = a; li.append(t);
-      const up = el("button", null, "↑"); up.type = "button"; up.disabled = i === 0; up.setAttribute("aria-label", "Monter " + a);
-      const down = el("button", null, "↓"); down.type = "button"; down.disabled = i === aisleOrder.length - 1; down.setAttribute("aria-label", "Descendre " + a);
-      const move = d => { const o = aisleOrder.slice(); [o[i], o[i + d]] = [o[i + d], o[i]]; saveOrder(o); };
-      up.onclick = () => move(-1); down.onclick = () => move(1);
-      li.append(up, down); ul.append(li);
-    });
-    box2.append(ul);
-    editBar.before(box2);
-  }
+  editBtn.textContent = editMode ? "Terminé" : "Gérer les rayons";
+  for (const id of ["addForm", "typeahead", "suggestBox", "todo", "cartBox"]) { const e = $(id); if (e) e.style.display = editMode ? "none" : ""; }
+  if (editMode) { $("count").textContent = ""; }
+  const old = $("orderBox");
+  // Ne pas reconstruire l'écran pendant qu'on tape un nom de rayon.
+  if (old && editMode && old.contains(document.activeElement) && document.activeElement.tagName === "INPUT") { renderTypeahead(); return; }
+  if (old) old.remove();
+  if (editMode) renderManager();
   renderTypeahead();
+}
+
+// --- Écran « Gérer les rayons » ---
+function renderManager() {
+  const box2 = el("section", "manager"); box2.id = "orderBox";
+  const h = el("h2"); h.textContent = "Vos rayons"; box2.append(h);
+  const p = el("p", "note"); p.style.margin = "-8px 2px 0";
+  p.textContent = "Touchez un nom pour le modifier. Les flèches rangent les rayons dans l'ordre du magasin. Sous chaque rayon, le menu permet de déplacer un article.";
+  box2.append(p);
+  const all = items.slice().sort(byName);
+  aisleOrder.forEach((id, i) => {
+    const card = el("div", "aisle-card");
+    const head = el("div", "aisle-head");
+    const name = document.createElement("input");
+    name.id = "aisle-name-" + id; name.value = aisleName(id); name.setAttribute("aria-label", "Nom du rayon");
+    name.enterKeyHint = "done";
+    name.addEventListener("change", () => renameAisle(id, name.value));
+    name.addEventListener("keydown", e => { if (e.key === "Enter") name.blur(); });
+    const up = el("button", null, "↑"); up.type = "button"; up.disabled = i === 0; up.setAttribute("aria-label", "Monter " + aisleName(id));
+    const down = el("button", null, "↓"); down.type = "button"; down.disabled = i === aisleOrder.length - 1; down.setAttribute("aria-label", "Descendre " + aisleName(id));
+    const move = d => { const o = aisleOrder.slice(); [o[i], o[i + d]] = [o[i + d], o[i]]; saveOrder(o); };
+    up.onclick = () => move(-1); down.onclick = () => move(1);
+    head.append(name, up, down);
+    if (id !== "Divers") {
+      const del = el("button", null, BIN); del.type = "button"; del.setAttribute("aria-label", "Supprimer le rayon " + aisleName(id));
+      del.onclick = () => { confirmDelete = confirmDelete === id ? null : id; render(); };
+      head.append(del);
+    }
+    card.append(head);
+    if (confirmDelete === id) {
+      const c = el("div", "confirm");
+      const t = el("span"); t.textContent = "Supprimer « " + aisleName(id) + " » ? Ses articles iront dans « " + aisleName("Divers") + " »."; c.append(t);
+      const yes = el("button", "danger"); yes.type = "button"; yes.textContent = "Supprimer"; yes.onclick = () => deleteAisle(id);
+      const no = el("button", "ghost"); no.type = "button"; no.textContent = "Annuler"; no.onclick = () => { confirmDelete = null; render(); };
+      c.append(yes, no); card.append(c);
+    }
+    const ul = el("ul", "aisle-items");
+    const these = all.filter(it => aisleOf(it) === id);
+    if (!these.length) { const li = el("li", "none"); li.textContent = "Aucun article pour l'instant"; ul.append(li); }
+    for (const it of these) {
+      const li = el("li"); const t = el("span"); t.textContent = it.name; li.append(t);
+      const sel = document.createElement("select");
+      sel.setAttribute("aria-label", "Rayon de " + it.name);
+      for (const a of aisleOrder) { const o = document.createElement("option"); o.value = a; o.textContent = aisleName(a); sel.append(o); }
+      sel.value = id;
+      sel.onchange = () => write(it.id, { aisle: sel.value });
+      li.append(sel); ul.append(li);
+    }
+    card.append(ul);
+    box2.append(card);
+  });
+  const addRow = el("form", "add"); addRow.autocomplete = "off";
+  const newName = document.createElement("input"); newName.id = "newAisle"; newName.placeholder = "Nouveau rayon, ex. Bio"; newName.setAttribute("aria-label", "Nom du nouveau rayon");
+  const addBtn = el("button", "btn"); addBtn.type = "submit"; addBtn.textContent = "Ajouter";
+  addRow.append(newName, addBtn);
+  addRow.addEventListener("submit", e => { e.preventDefault(); addAisle(newName.value); });
+  box2.append(addRow);
+  editBar.before(box2);
 }
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
