@@ -32,3 +32,7 @@ Ces clés ne sont pas secrètes : elles identifient le projet, et c'est le fichi
 ## Installer l'appli sur Android
 
 Ouvre l'adresse du site dans Chrome, connecte-toi avec Google, puis menu **⋮ > Installer l'application** (ou **Ajouter à l'écran d'accueil**). L'icône du panier vert apparaît sur l'écran d'accueil.
+
+## Mettre à jour l'appli sur le téléphone
+
+Après une nouvelle version, ferme complètement l'appli puis rouvre-la (deux fois si besoin). Le numéro de version s'affiche en bas de la liste, à côté de l'adresse Gmail.
