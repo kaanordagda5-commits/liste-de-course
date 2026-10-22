@@ -10,6 +10,7 @@ import { firebaseConfig, allowedEmails } from "./config.js";
 
 // Une seule liste commune pour la famille.
 const LIST = "lists/famille/items";
+const VERSION = "v3";
 
 // Rayon deviné à partir du nom, pour suivre l'ordre du magasin.
 const AISLES = [
@@ -38,7 +39,13 @@ const BIN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-w
 
 const $ = id => document.getElementById(id);
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
-function setStatus(text, err) { const s = $("status"); s.textContent = text; s.className = "status" + (err ? " err" : ""); s.hidden = !text; }
+function setStatus(text, err) {
+  const s = $("status"); s.textContent = text; s.className = "status" + (err ? " err" : ""); s.hidden = !text;
+  // Une erreur reste visible même si la page se recharge, jusqu'à la prochaine connexion réussie.
+  try { if (err) localStorage.setItem("lastError", text); } catch (e) {}
+}
+function clearError() { try { localStorage.removeItem("lastError"); } catch (e) {} }
+function savedError() { try { return localStorage.getItem("lastError") || ""; } catch (e) { return ""; } }
 
 let items = [];     // {id, name, aisle, status: "todo"|"cart"|"stock", staple}
 let col = null;
@@ -70,7 +77,7 @@ function authError(e) {
 }
 
 $("signinBtn").onclick = async () => {
-  deniedMessage = "";
+  deniedMessage = ""; clearError();
   const provider = new GoogleAuthProvider();
   provider.setCustomParameters({ prompt: "select_account" });
   setStatus("Connexion en cours…");
@@ -89,8 +96,9 @@ onAuthStateChanged(auth, user => {
   items = []; col = null;
   if (!user) {
     $("signin").hidden = false; $("main").hidden = true; $("count").textContent = "";
-    if (deniedMessage) setStatus(deniedMessage, true);
-    else if ($("status").classList.contains("err") === false) setStatus("");
+    const err = deniedMessage || savedError();
+    if (err) setStatus(err, true);
+    else setStatus("");
     return;
   }
   const email = (user.email || "").toLowerCase();
@@ -101,8 +109,9 @@ onAuthStateChanged(auth, user => {
     signOut(auth);
     return;
   }
+  clearError(); deniedMessage = "";
   $("signin").hidden = true; $("main").hidden = false;
-  $("who").textContent = "Connecté : " + email;
+  $("who").textContent = "Connecté : " + email + " · " + VERSION;
   setStatus("Chargement de la liste…");
   col = collection(db, LIST);
   stopList = onSnapshot(col, snap => {
