@@ -10,7 +10,7 @@ import { firebaseConfig, allowedEmails } from "./config.js";
 
 // Une seule liste commune pour la famille.
 const LIST = "lists/famille/items";
-const VERSION = "v18";
+const VERSION = "v19";
 // Document spécial (dans la même collection) qui garde les réglages communs, comme l'ordre des rayons.
 const SETTINGS_ID = "_reglages";
 // Couleur de chaque personne : orange saumon pour Mattia, bleu clair pour Francesca.
@@ -114,7 +114,7 @@ function savedError() { try { return localStorage.getItem("lastError") || ""; } 
 // status : "todo" (à prendre), "cart" (dans le panier), "stock" (essentiel à racheter), "history" (déjà acheté, sert aux suggestions)
 let items = [];     // {id, name, aisle, status, staple}
 let editMode = false;
-let cards = {};        // cartes de fidélité : adresse Gmail -> { nom de la carte -> document }
+let cards = {};        // cartes de fidélité communes : nom de la carte -> document le plus récent
 let cardOpen = false;
 let col = null;
 let stopList = null;
@@ -193,7 +193,10 @@ onAuthStateChanged(auth, user => {
     aisleNames = (settings && settings.aisleNames) || {};
     aisleOrder = mergeOrder(settings && settings.aisleOrder);
     cards = {};
-    for (const d of all) if (d.kind === "card" && d.owner) (cards[d.owner] = cards[d.owner] || {})[d.label || "Supercard"] = d;
+    for (const d of all) if (d.kind === "card" && d.photo) {
+      const label = d.label || "Supercard";
+      if (!cards[label] || (d.updatedAt || 0) > (cards[label].updatedAt || 0)) cards[label] = d;
+    }
     items = all.filter(d => d.id !== SETTINGS_ID && d.kind !== "settings" && d.kind !== "card");
     if (cardOpen) renderCard();
     setStatus(snap.metadata.fromCache ? "Hors ligne : vos changements partiront dès le retour du réseau." : "");
@@ -519,7 +522,8 @@ let wakeLock = null;
 // Les cartes proposées. La Supercard garde l'identifiant de la première version (sans suffixe).
 const CARD_TYPES = ["Supercard", "Manor"];
 let currentCard = (() => { try { return localStorage.getItem("lastCard") || CARD_TYPES[0]; } catch (e) { return CARD_TYPES[0]; } })();
-const cardId = label => "_carte_" + myEmail.replace(/[^a-z0-9._@+-]/gi, "_") + (label === "Supercard" ? "" : "_" + norm(label).replace(/[^a-z0-9]/g, ""));
+// Cartes communes au foyer : une seule photo par carte, visible par vous deux.
+const cardId = label => "_carte_commune_" + norm(label).replace(/[^a-z0-9]/g, "");
 
 cardBtn.onclick = async () => {
   cardOpen = true; renderCard(); cardView.hidden = false;
@@ -532,7 +536,7 @@ function closeCard() {
 }
 function renderCard() {
   cardView.innerHTML = "";
-  const myCards = cards[myEmail] || {};
+  const myCards = cards;
   if (!CARD_TYPES.includes(currentCard)) currentCard = CARD_TYPES[0];
   // Onglets pour passer d'une carte à l'autre.
   const tabs = el("div", "card-tabs");
