@@ -10,10 +10,22 @@ import { firebaseConfig, allowedEmails } from "./config.js";
 
 // Une seule liste commune pour la famille.
 const LIST = "lists/famille/items";
-const VERSION = "v5";
+const VERSION = "v6";
 // Couleur de chaque personne : vert pour Mattia, bleu clair pour Francesca.
 const PERSON_CLASS = { "kaanordagda5@gmail.com": "p-green", "francesca.jardini@gmail.com": "p-blue" };
-const NAME_CLASS = { mattia: "p-green", francesca: "p-blue" };
+const NAME_CLASS = { mattia: "p-green", ma: "p-green", francesca: "p-blue" };
+
+// Les couleurs sont posées ici plutôt que dans index.html, pour qu'elles arrivent avec ce fichier
+// même si le téléphone a gardé une ancienne page en mémoire.
+const personStyle = document.createElement("style");
+personStyle.textContent = `
+  :root { --green-soft: #e3f3e7; --blue-soft: #e1f0fc; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --green-soft: #1d3324; --blue-soft: #1a2c3a; } }
+  :root[data-theme="dark"] { --green-soft: #1d3324; --blue-soft: #1a2c3a; }
+  li.row.p-green { background: var(--green-soft); }
+  li.row.p-blue { background: var(--blue-soft); }
+`;
+document.head.append(personStyle);
 
 // Rayon deviné à partir du nom, pour suivre l'ordre du magasin.
 const AISLES = [
@@ -163,7 +175,6 @@ function row(it) {
   tick.setAttribute("aria-label", (it.status === "cart" ? "Remettre sur la liste : " : "Mettre dans le panier : ") + it.name);
   tick.append(el("span", "box"));
   const nm = el("span", "name"); nm.textContent = it.name; tick.append(nm);
-  if (it.addedBy) { const by = el("span", "by"); by.textContent = it.addedBy; tick.append(by); }
   tick.onclick = () => write(it.id, { status: it.status === "cart" ? "todo" : "cart" });
   li.append(tick);
   const star = el("button", "icon", it.staple ? STAR_ON : STAR);
