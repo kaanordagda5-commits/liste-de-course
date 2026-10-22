@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
-  getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signInWithRedirect, signOut,
+  getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult, signOut,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
@@ -55,15 +55,33 @@ auth.languageCode = "fr";
 // Cache local : la liste reste lisible et modifiable sans réseau (fond du magasin), puis se synchronise.
 const db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
 
+// Message gardé à l'écran après une connexion refusée (sinon la déconnexion l'effacerait).
+let deniedMessage = "";
+
+function authError(e) {
+  const code = (e && e.code) || "inconnu";
+  const msg = {
+    "auth/unauthorized-domain": "Firebase refuse cette adresse de site. Ajoutez kaanordagda5-commits.github.io dans Authentication > Paramètres > Domaines autorisés.",
+    "auth/operation-not-allowed": "La connexion Google n'est pas activée dans Firebase (Authentication > Mode de connexion).",
+    "auth/popup-blocked": "Le navigateur a bloqué la fenêtre de connexion Google. Autorisez les fenêtres pop-up pour ce site, puis réessayez.",
+    "auth/network-request-failed": "Pas de connexion internet. Réessayez quand le réseau revient.",
+  }[code] || "La connexion n'a pas marché.";
+  setStatus(msg + " (code : " + code + ")", true);
+}
+
 $("signinBtn").onclick = async () => {
+  deniedMessage = "";
   const provider = new GoogleAuthProvider();
   provider.setCustomParameters({ prompt: "select_account" });
+  setStatus("Connexion en cours…");
   try { await signInWithPopup(auth, provider); }
   catch (e) {
-    if (e.code === "auth/popup-blocked" || e.code === "auth/operation-not-supported-in-this-environment") await signInWithRedirect(auth, provider);
-    else if (e.code !== "auth/popup-closed-by-user" && e.code !== "auth/cancelled-popup-request") setStatus("La connexion n'a pas marché. Réessayez.", true);
+    if (e.code === "auth/popup-closed-by-user" || e.code === "auth/cancelled-popup-request") { setStatus(""); return; }
+    if (e.code === "auth/operation-not-supported-in-this-environment") { await signInWithRedirect(auth, provider); return; }
+    authError(e);
   }
 };
+getRedirectResult(auth).catch(authError);
 $("signout").onclick = () => signOut(auth);
 
 onAuthStateChanged(auth, user => {
@@ -71,13 +89,15 @@ onAuthStateChanged(auth, user => {
   items = []; col = null;
   if (!user) {
     $("signin").hidden = false; $("main").hidden = true; $("count").textContent = "";
-    setStatus("");
+    if (deniedMessage) setStatus(deniedMessage, true);
+    else if ($("status").classList.contains("err") === false) setStatus("");
     return;
   }
   const email = (user.email || "").toLowerCase();
   if (!allowedEmails.map(e => e.toLowerCase()).includes(email)) {
     $("signin").hidden = false; $("main").hidden = true;
-    setStatus("Le compte " + email + " n'a pas accès à cette liste. Connectez-vous avec un compte autorisé.", true);
+    deniedMessage = "Le compte " + (email || "(sans e-mail)") + " n'a pas accès à cette liste. Connectez-vous avec un compte autorisé.";
+    setStatus(deniedMessage, true);
     signOut(auth);
     return;
   }
@@ -89,13 +109,13 @@ onAuthStateChanged(auth, user => {
     items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     setStatus(snap.metadata.fromCache ? "Hors ligne : vos changements partiront dès le retour du réseau." : "");
     render();
-  }, () => setStatus("La liste n'a pas pu être lue. Vérifiez que votre compte est autorisé.", true));
+  }, e => setStatus("La liste n'a pas pu être lue. Vérifiez les règles Firestore. (code : " + (e && e.code) + ")", true));
   render();
 });
 
 // --- Écritures ---
 // Firestore garde les écritures en attente hors ligne, donc on n'attend pas le serveur pour mettre à jour l'écran.
-function failed() { setStatus("La modification n'est pas passée. Vérifiez la connexion et réessayez.", true); }
+function failed(e) { setStatus("La modification n'est pas passée. (code : " + ((e && e.code) || "inconnu") + ")", true); }
 const write = (id, patch) => updateDoc(doc(col, id), patch).catch(failed);
 const remove = id => deleteDoc(doc(col, id)).catch(failed);
 
