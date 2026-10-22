@@ -10,7 +10,7 @@ import { firebaseConfig, allowedEmails } from "./config.js";
 
 // Une seule liste commune pour la famille.
 const LIST = "lists/famille/items";
-const VERSION = "v16";
+const VERSION = "v17";
 // Document spécial (dans la même collection) qui garde les réglages communs, comme l'ordre des rayons.
 const SETTINGS_ID = "_reglages";
 // Couleur de chaque personne : orange saumon pour Mattia, bleu clair pour Francesca.
@@ -47,6 +47,9 @@ personStyle.textContent = `
   .card-view p { margin: 0; text-align: center; color: #5f6f64; max-width: 34ch; }
   .card-view .actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
   .card-view .ghost { color: #1d2a22; border-color: #d9e2da; background: #ffffff; }
+  .card-tabs { display: flex; gap: 6px; padding: 4px; border-radius: 999px; background: #eef2ee; }
+  .card-tab { border: 0; border-radius: 999px; padding: 10px 18px; font: inherit; font-weight: 700; background: transparent; color: #5f6f64; cursor: pointer; }
+  .card-tab.on { background: #ffffff; color: #1d2a22; box-shadow: 0 1px 3px rgba(0,0,0,0.15); }
   .card-view h2 { color: #1d2a22; font-size: 1.1rem; text-transform: none; letter-spacing: 0; }
   .aisle-card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
   .aisle-head { display: flex; align-items: center; gap: 6px; padding: 8px; background: var(--accent-soft); }
@@ -111,7 +114,7 @@ function savedError() { try { return localStorage.getItem("lastError") || ""; } 
 // status : "todo" (à prendre), "cart" (dans le panier), "stock" (essentiel à racheter), "history" (déjà acheté, sert aux suggestions)
 let items = [];     // {id, name, aisle, status, staple}
 let editMode = false;
-let cards = {};        // carte de fidélité de chaque personne, par adresse Gmail
+let cards = {};        // cartes de fidélité : adresse Gmail -> { nom de la carte -> document }
 let cardOpen = false;
 let col = null;
 let stopList = null;
@@ -190,7 +193,7 @@ onAuthStateChanged(auth, user => {
     aisleNames = (settings && settings.aisleNames) || {};
     aisleOrder = mergeOrder(settings && settings.aisleOrder);
     cards = {};
-    for (const d of all) if (d.kind === "card" && d.owner) cards[d.owner] = d;
+    for (const d of all) if (d.kind === "card" && d.owner) (cards[d.owner] = cards[d.owner] || {})[d.label || "Supercard"] = d;
     items = all.filter(d => d.id !== SETTINGS_ID && d.kind !== "settings" && d.kind !== "card");
     if (cardOpen) renderCard();
     setStatus(snap.metadata.fromCache ? "Hors ligne : vos changements partiront dès le retour du réseau." : "");
@@ -513,7 +516,10 @@ cardFile.type = "file"; cardFile.accept = "image/*"; cardFile.id = "cardFile"; c
 document.body.append(cardFile);
 let wakeLock = null;
 
-const cardId = () => "_carte_" + myEmail.replace(/[^a-z0-9._@+-]/gi, "_");
+// Les cartes proposées. La Supercard garde l'identifiant de la première version (sans suffixe).
+const CARD_TYPES = ["Supercard", "Manor"];
+let currentCard = (() => { try { return localStorage.getItem("lastCard") || CARD_TYPES[0]; } catch (e) { return CARD_TYPES[0]; } })();
+const cardId = label => "_carte_" + myEmail.replace(/[^a-z0-9._@+-]/gi, "_") + (label === "Supercard" ? "" : "_" + norm(label).replace(/[^a-z0-9]/g, ""));
 
 cardBtn.onclick = async () => {
   cardOpen = true; renderCard(); cardView.hidden = false;
@@ -526,13 +532,24 @@ function closeCard() {
 }
 function renderCard() {
   cardView.innerHTML = "";
-  const mine = cards[myEmail];
+  const myCards = cards[myEmail] || {};
+  if (!CARD_TYPES.includes(currentCard)) currentCard = CARD_TYPES[0];
+  // Onglets pour passer d'une carte à l'autre.
+  const tabs = el("div", "card-tabs");
+  for (const label of CARD_TYPES) {
+    const t = el("button", "card-tab" + (label === currentCard ? " on" : "")); t.type = "button"; t.textContent = label;
+    t.setAttribute("aria-pressed", label === currentCard ? "true" : "false");
+    t.onclick = () => { currentCard = label; try { localStorage.setItem("lastCard", label); } catch (e) {} renderCard(); };
+    tabs.append(t);
+  }
+  cardView.append(tabs);
+  const mine = myCards[currentCard];
   if (mine && mine.photo) {
-    const img = document.createElement("img"); img.src = mine.photo; img.alt = "Photo de ma Supercard";
+    const img = document.createElement("img"); img.src = mine.photo; img.alt = "Photo de ma carte " + currentCard;
     const tip = el("p"); tip.textContent = "Montez la luminosité de l'écran au maximum pour que la caisse lise bien le code-barres.";
     cardView.append(img, tip);
   } else {
-    const h = el("h2"); h.textContent = "Ajoutez votre Supercard";
+    const h = el("h2"); h.textContent = "Ajoutez votre carte " + currentCard;
     const tip = el("p"); tip.textContent = "Prenez la carte en photo de face, bien à plat et sans reflet, avec le code-barres entièrement visible.";
     cardView.append(h, tip);
   }
@@ -551,7 +568,7 @@ cardFile.addEventListener("change", async () => {
   if (!file || !col) return;
   try {
     const photo = await shrinkPhoto(file, 1100, 0.85);
-    await setDoc(doc(col, cardId()), { kind: "card", owner: myEmail, photo, updatedAt: Date.now() });
+    await setDoc(doc(col, cardId(currentCard)), { kind: "card", owner: myEmail, label: currentCard, photo, updatedAt: Date.now() });
   } catch (e) { setStatus("La photo n'a pas pu être enregistrée. (" + ((e && (e.code || e.message)) || "erreur") + ")", true); }
 });
 // Réduit la photo (côté le plus long : maxSide pixels) pour qu'elle tienne dans la base de données.
