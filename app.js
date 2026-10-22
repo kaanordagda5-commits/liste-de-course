@@ -10,7 +10,7 @@ import { firebaseConfig, allowedEmails } from "./config.js";
 
 // Une seule liste commune pour la famille.
 const LIST = "lists/famille/items";
-const VERSION = "v10";
+const VERSION = "v11";
 // Document spécial (dans la même collection) qui garde les réglages communs, comme l'ordre des rayons.
 const SETTINGS_ID = "_reglages";
 // Couleur de chaque personne : vert pour Mattia, bleu clair pour Francesca.
@@ -49,8 +49,12 @@ personStyle.textContent = `
   .aisle-items { list-style: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; }
   .aisle-items li { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 14px; border-top: 1px solid var(--line); }
   .aisle-items li span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .aisle-items .item-name { flex: 1; min-width: 0; font: inherit; padding: 7px 8px; margin-left: -8px; border-radius: 10px; border: 1.5px solid transparent; background: transparent; color: var(--fg); }
+  .aisle-items .item-name:focus { border-color: var(--accent); background: var(--card); outline: none; }
+  .aisle-items .item-del { flex: none; width: 40px; height: 40px; border-radius: 10px; border: 0; background: none; color: var(--muted); display: grid; place-items: center; cursor: pointer; }
+  .aisle-items .item-del svg { width: 18px; height: 18px; }
   .aisle-items .none { color: var(--muted); font-size: 0.9rem; padding: 10px 14px; }
-  .aisle-items select { flex: none; max-width: 52%; font: inherit; font-size: 0.9rem; padding: 7px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--card); color: var(--fg); }
+  .aisle-items select { flex: none; max-width: 42%; font: inherit; font-size: 0.85rem; padding: 7px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--card); color: var(--fg); }
   .manager { display: flex; flex-direction: column; gap: 14px; }
   .confirm { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 14px; border-top: 1px solid var(--line); font-size: 0.9rem; }
   .confirm .danger { background: var(--warn); color: #fff; border: 0; border-radius: 10px; padding: 8px 12px; font-weight: 700; cursor: pointer; }
@@ -413,7 +417,7 @@ function renderManager() {
   const box2 = el("section", "manager"); box2.id = "orderBox";
   const h = el("h2"); h.textContent = "Vos rayons"; box2.append(h);
   const p = el("p", "note"); p.style.margin = "-8px 2px 0";
-  p.textContent = "Touchez un nom pour le modifier. Les flèches rangent les rayons dans l'ordre du magasin. Sous chaque rayon, le menu permet de déplacer un article.";
+  p.textContent = "Touchez un nom de rayon ou d'article pour le corriger. Les flèches rangent les rayons dans l'ordre du magasin. Le menu déplace un article, la poubelle le supprime.";
   box2.append(p);
   const all = items.slice().sort(byName);
   aisleOrder.forEach((id, i) => {
@@ -446,13 +450,21 @@ function renderManager() {
     const these = all.filter(it => aisleOf(it) === id);
     if (!these.length) { const li = el("li", "none"); li.textContent = "Aucun article pour l'instant"; ul.append(li); }
     for (const it of these) {
-      const li = el("li"); const t = el("span"); t.textContent = it.name; li.append(t);
+      const li = el("li");
+      // Le nom se corrige directement (faute de frappe), validé avec Entrée.
+      const t = document.createElement("input"); t.className = "item-name"; t.id = "item-name-" + it.id;
+      t.value = it.name; t.setAttribute("aria-label", "Nom de l'article"); t.enterKeyHint = "done";
+      t.addEventListener("change", () => { const v = t.value.trim().replace(/\s+/g, " "); if (v && v !== it.name) write(it.id, { name: v.charAt(0).toUpperCase() + v.slice(1) }); else t.value = it.name; });
+      t.addEventListener("keydown", e => { if (e.key === "Enter") t.blur(); });
+      li.append(t);
       const sel = document.createElement("select");
       sel.setAttribute("aria-label", "Rayon de " + it.name);
       for (const a of aisleOrder) { const o = document.createElement("option"); o.value = a; o.textContent = aisleName(a); sel.append(o); }
       sel.value = id;
       sel.onchange = () => write(it.id, { aisle: sel.value });
-      li.append(sel); ul.append(li);
+      const del = el("button", "item-del", BIN); del.type = "button"; del.setAttribute("aria-label", "Supprimer l'article " + it.name); del.title = "Supprimer";
+      del.onclick = () => remove(it.id);
+      li.append(sel, del); ul.append(li);
     }
     card.append(ul);
     box2.append(card);
