@@ -10,7 +10,7 @@ import { firebaseConfig, allowedEmails } from "./config.js";
 
 // Une seule liste commune pour la famille.
 const LIST = "lists/famille/items";
-const VERSION = "v15";
+const VERSION = "v16";
 // Document spécial (dans la même collection) qui garde les réglages communs, comme l'ordre des rayons.
 const SETTINGS_ID = "_reglages";
 // Couleur de chaque personne : orange saumon pour Mattia, bleu clair pour Francesca.
@@ -39,7 +39,7 @@ personStyle.textContent = `
   .order button { width: 40px; height: 40px; border-radius: 10px; border: 1.5px solid var(--line); background: none; color: var(--fg); font-size: 1.1rem; cursor: pointer; }
   .order button:disabled { opacity: 0.3; cursor: default; }
   .editbar { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 22px; }
-  .cardbtn { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+  .cardbtn { display: inline-flex; align-items: center; gap: 8px; }
   .cardbtn svg { width: 20px; height: 20px; }
   .card-view { position: fixed; inset: 0; z-index: 50; background: #ffffff; color: #1d2a22; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
     padding: calc(16px + env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) calc(16px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
@@ -420,6 +420,7 @@ function render() {
   if (old && editMode && old.contains(document.activeElement) && document.activeElement.tagName === "INPUT") { renderTypeahead(); return; }
   if (old) old.remove();
   if (editMode) renderManager();
+  placeCardButton();
   renderTypeahead();
 }
 
@@ -489,13 +490,21 @@ function renderManager() {
   editBar.before(box2);
 }
 
+// Le bouton carte se place à côté de « Courses terminées » quand le panier n'est pas vide, sinon en bas avec les autres boutons.
+function placeCardButton() {
+  const cartShown = !$("cartBox").hidden && !editMode;
+  const target = cartShown ? $("cartBox").querySelector(".actions") : editBar;
+  if (cardBtn.parentElement !== target) { if (cartShown) target.append(cardBtn); else target.prepend(cardBtn); }
+  cardBtn.hidden = editMode;
+}
+
 // --- Carte de fidélité (Supercard) ---
 // La photo est réduite puis gardée dans Firebase, avec un document par personne : chacun a sa carte,
 // et elle reste disponible hors ligne à la caisse grâce au cache local.
 const CARD_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M6 10v4M9 10v4M11.5 10v4M14 10v4M17.5 10v4"/></svg>';
 const cardBtn = el("button", "ghost cardbtn", CARD_ICON + "<span>Afficher carte</span>");
 cardBtn.type = "button"; cardBtn.id = "showCard";
-$("main").prepend(cardBtn);
+placeCardButton();
 const cardView = el("div", "card-view"); cardView.id = "cardView"; cardView.hidden = true;
 cardView.setAttribute("role", "dialog"); cardView.setAttribute("aria-label", "Carte de fidélité");
 document.body.append(cardView);
