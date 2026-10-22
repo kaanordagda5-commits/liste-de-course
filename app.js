@@ -10,7 +10,7 @@ import { firebaseConfig, allowedEmails } from "./config.js";
 
 // Une seule liste commune pour la famille.
 const LIST = "lists/famille/items";
-const VERSION = "v14";
+const VERSION = "v15";
 // Document spécial (dans la même collection) qui garde les réglages communs, comme l'ordre des rayons.
 const SETTINGS_ID = "_reglages";
 // Couleur de chaque personne : orange saumon pour Mattia, bleu clair pour Francesca.
@@ -39,6 +39,15 @@ personStyle.textContent = `
   .order button { width: 40px; height: 40px; border-radius: 10px; border: 1.5px solid var(--line); background: none; color: var(--fg); font-size: 1.1rem; cursor: pointer; }
   .order button:disabled { opacity: 0.3; cursor: default; }
   .editbar { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 22px; }
+  .cardbtn { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+  .cardbtn svg { width: 20px; height: 20px; }
+  .card-view { position: fixed; inset: 0; z-index: 50; background: #ffffff; color: #1d2a22; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+    padding: calc(16px + env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) calc(16px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
+  .card-view img { max-width: 100%; max-height: 62vh; object-fit: contain; border-radius: 12px; }
+  .card-view p { margin: 0; text-align: center; color: #5f6f64; max-width: 34ch; }
+  .card-view .actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  .card-view .ghost { color: #1d2a22; border-color: #d9e2da; background: #ffffff; }
+  .card-view h2 { color: #1d2a22; font-size: 1.1rem; text-transform: none; letter-spacing: 0; }
   .aisle-card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
   .aisle-head { display: flex; align-items: center; gap: 6px; padding: 8px; background: var(--accent-soft); }
   .aisle-head input { flex: 1; min-width: 0; font: inherit; font-weight: 700; padding: 8px 10px; border-radius: 10px; border: 1.5px solid transparent; background: transparent; color: var(--fg); }
@@ -102,6 +111,8 @@ function savedError() { try { return localStorage.getItem("lastError") || ""; } 
 // status : "todo" (à prendre), "cart" (dans le panier), "stock" (essentiel à racheter), "history" (déjà acheté, sert aux suggestions)
 let items = [];     // {id, name, aisle, status, staple}
 let editMode = false;
+let cards = {};        // carte de fidélité de chaque personne, par adresse Gmail
+let cardOpen = false;
 let col = null;
 let stopList = null;
 let me = "";
@@ -178,7 +189,10 @@ onAuthStateChanged(auth, user => {
     hiddenAisles = (settings && Array.isArray(settings.hiddenAisles)) ? settings.hiddenAisles : [];
     aisleNames = (settings && settings.aisleNames) || {};
     aisleOrder = mergeOrder(settings && settings.aisleOrder);
-    items = all.filter(d => d.id !== SETTINGS_ID && d.kind !== "settings");
+    cards = {};
+    for (const d of all) if (d.kind === "card" && d.owner) cards[d.owner] = d;
+    items = all.filter(d => d.id !== SETTINGS_ID && d.kind !== "settings" && d.kind !== "card");
+    if (cardOpen) renderCard();
     setStatus(snap.metadata.fromCache ? "Hors ligne : vos changements partiront dès le retour du réseau." : "");
     render();
   }, e => setStatus("La liste n'a pas pu être lue. Vérifiez les règles Firestore. (code : " + (e && e.code) + ")", true));
@@ -474,5 +488,84 @@ function renderManager() {
   box2.append(addRow);
   editBar.before(box2);
 }
+
+// --- Carte de fidélité (Supercard) ---
+// La photo est réduite puis gardée dans Firebase, avec un document par personne : chacun a sa carte,
+// et elle reste disponible hors ligne à la caisse grâce au cache local.
+const CARD_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M6 10v4M9 10v4M11.5 10v4M14 10v4M17.5 10v4"/></svg>';
+const cardBtn = el("button", "ghost cardbtn", CARD_ICON + "<span>Afficher carte</span>");
+cardBtn.type = "button"; cardBtn.id = "showCard";
+$("main").prepend(cardBtn);
+const cardView = el("div", "card-view"); cardView.id = "cardView"; cardView.hidden = true;
+cardView.setAttribute("role", "dialog"); cardView.setAttribute("aria-label", "Carte de fidélité");
+document.body.append(cardView);
+const cardFile = document.createElement("input");
+cardFile.type = "file"; cardFile.accept = "image/*"; cardFile.id = "cardFile"; cardFile.hidden = true;
+document.body.append(cardFile);
+let wakeLock = null;
+
+const cardId = () => "_carte_" + myEmail.replace(/[^a-z0-9._@+-]/gi, "_");
+
+cardBtn.onclick = async () => {
+  cardOpen = true; renderCard(); cardView.hidden = false;
+  try { wakeLock = await navigator.wakeLock.request("screen"); } catch (e) { wakeLock = null; }
+};
+function closeCard() {
+  cardOpen = false; cardView.hidden = true;
+  try { if (wakeLock) wakeLock.release(); } catch (e) {}
+  wakeLock = null;
+}
+function renderCard() {
+  cardView.innerHTML = "";
+  const mine = cards[myEmail];
+  if (mine && mine.photo) {
+    const img = document.createElement("img"); img.src = mine.photo; img.alt = "Photo de ma Supercard";
+    const tip = el("p"); tip.textContent = "Montez la luminosité de l'écran au maximum pour que la caisse lise bien le code-barres.";
+    cardView.append(img, tip);
+  } else {
+    const h = el("h2"); h.textContent = "Ajoutez votre Supercard";
+    const tip = el("p"); tip.textContent = "Prenez la carte en photo de face, bien à plat et sans reflet, avec le code-barres entièrement visible.";
+    cardView.append(h, tip);
+  }
+  const actions = el("div", "actions");
+  const pick = el("button", mine ? "ghost" : "btn"); pick.type = "button";
+  pick.textContent = mine ? "Changer la photo" : "Prendre la photo";
+  pick.onclick = () => cardFile.click();
+  const close = el("button", mine ? "btn" : "ghost"); close.type = "button"; close.textContent = "Fermer";
+  close.onclick = closeCard;
+  actions.append(pick, close);
+  cardView.append(actions);
+}
+cardFile.addEventListener("change", async () => {
+  const file = cardFile.files && cardFile.files[0];
+  cardFile.value = "";
+  if (!file || !col) return;
+  try {
+    const photo = await shrinkPhoto(file, 1100, 0.85);
+    await setDoc(doc(col, cardId()), { kind: "card", owner: myEmail, photo, updatedAt: Date.now() });
+  } catch (e) { setStatus("La photo n'a pas pu être enregistrée. (" + ((e && (e.code || e.message)) || "erreur") + ")", true); }
+});
+// Réduit la photo (côté le plus long : maxSide pixels) pour qu'elle tienne dans la base de données.
+function shrinkPhoto(file, maxSide, quality) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, maxSide / Math.max(img.width, img.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height);
+      g.drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      let out = c.toDataURL("image/jpeg", quality);
+      if (out.length > 900000) out = c.toDataURL("image/jpeg", 0.6);
+      resolve(out);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("image illisible")); };
+    img.src = url;
+  });
+}
+document.addEventListener("keydown", e => { if (e.key === "Escape" && cardOpen) closeCard(); });
+window.addEventListener("popstate", () => { if (cardOpen) closeCard(); });
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
