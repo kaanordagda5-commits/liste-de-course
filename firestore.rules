@@ -1,5 +1,5 @@
 rules_version = '2';
-// Seuls les deux comptes Google ci-dessous peuvent lire ou modifier la liste.
+// Seuls les comptes Google ci-dessous peuvent lire ou modifier la liste.
 // À coller dans Console Firebase > Firestore Database > Règles, puis « Publier ».
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -7,8 +7,7 @@ service cloud.firestore {
       return request.auth != null
         && request.auth.token.email_verified == true
         && request.auth.token.email in [
-          "premier.compte@gmail.com",
-          "second.compte@gmail.com"
+          "kaanordagda5@gmail.com"
         ];
     }
     match /lists/{listId}/items/{itemId} {
