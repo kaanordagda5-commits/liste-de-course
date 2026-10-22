@@ -10,7 +10,7 @@ import { firebaseConfig, allowedEmails } from "./config.js";
 
 // Une seule liste commune pour la famille.
 const LIST = "lists/famille/items";
-const VERSION = "v8";
+const VERSION = "v9";
 // Document spécial (dans la même collection) qui garde les réglages communs, comme l'ordre des rayons.
 const SETTINGS_ID = "_reglages";
 // Couleur de chaque personne : vert pour Mattia, bleu clair pour Francesca.
@@ -221,24 +221,42 @@ if (Recognition) {
   mic.title = "Dicter des articles, par exemple : pâtes, tomates et parmesan";
   $("addBtn").before(mic);
   let rec = null;
+  let heard = "";      // texte entendu, affiché dans le champ pendant qu'on parle
+  let done = false;    // vrai quand la phrase finale a été traitée
   mic.onclick = () => {
     if (rec) { rec.stop(); return; }
     rec = new Recognition();
-    rec.lang = "fr-FR"; rec.interimResults = false; rec.maxAlternatives = 1;
+    rec.lang = "fr-FR"; rec.interimResults = true; rec.continuous = false; rec.maxAlternatives = 1;
+    heard = ""; done = false;
     rec.onstart = () => { mic.classList.add("listening"); setStatus("Je vous écoute… dites par exemple « pâtes, tomates et parmesan »."); };
+    rec.onaudiostart = () => setStatus("Micro ouvert, parlez maintenant…");
     rec.onresult = e => {
-      const said = e.results[0][0].transcript;
-      const names = said.split(/,|\bet\b|\bpuis\b|\bensuite\b/i).map(x => x.trim()).filter(Boolean);
-      names.forEach(addName);
-      setStatus(names.length ? "Ajouté : " + names.join(", ") : "");
+      let text = "", final = false;
+      for (let i = 0; i < e.results.length; i++) { text += e.results[i][0].transcript; if (e.results[i].isFinal) final = true; }
+      heard = text.trim();
+      input.value = heard;
+      if (final && !done) {
+        done = true;
+        const names = heard.split(/,|\bet\b|\bpuis\b|\bensuite\b/i).map(x => x.trim()).filter(Boolean);
+        names.forEach(addName);
+        input.value = "";
+        renderTypeahead();
+        setStatus(names.length ? "Ajouté : " + names.join(", ") : "");
+      }
     };
     rec.onerror = e => {
-      if (e.error === "not-allowed" || e.error === "service-not-allowed") setStatus("Le micro est bloqué. Autorisez-le pour ce site dans les réglages de Chrome.", true);
+      done = true;
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") setStatus("Le micro est bloqué pour ce site. Dans Chrome : ⋮ > Paramètres > Paramètres des sites > Micro, puis autorisez ce site. (code : " + e.error + ")", true);
       else if (e.error === "no-speech") setStatus("Je n'ai rien entendu. Touchez le micro et réessayez.");
-      else setStatus("La dictée n'a pas marché (" + e.error + ").", true);
+      else if (e.error === "aborted") setStatus("");
+      else setStatus("La dictée n'a pas marché. (code : " + e.error + ")", true);
     };
-    rec.onend = () => { mic.classList.remove("listening"); rec = null; };
-    try { rec.start(); } catch (e) { rec = null; }
+    rec.onend = () => {
+      mic.classList.remove("listening"); rec = null;
+      // Si la phrase n'a pas été validée, on la laisse dans le champ : il suffit de toucher « Ajouter ».
+      if (!done) setStatus(heard ? "Vérifiez le texte puis touchez « Ajouter »." : "Je n'ai rien entendu. Touchez le micro et réessayez.");
+    };
+    try { rec.start(); } catch (err) { rec = null; setStatus("La dictée n'a pas pu démarrer. (" + (err && err.message) + ")", true); }
   };
 }
 
