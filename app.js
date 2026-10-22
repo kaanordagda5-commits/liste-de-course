@@ -10,7 +10,7 @@ import { firebaseConfig, allowedEmails } from "./config.js";
 
 // Une seule liste commune pour la famille.
 const LIST = "lists/famille/items";
-const VERSION = "v11";
+const VERSION = "v12";
 // Document spécial (dans la même collection) qui garde les réglages communs, comme l'ordre des rayons.
 const SETTINGS_ID = "_reglages";
 // Couleur de chaque personne : vert pour Mattia, bleu clair pour Francesca.
@@ -92,6 +92,7 @@ function guessAisle(name) {
 const STAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></svg>';
 const STAR_ON = STAR.replace('fill="none"', 'fill="currentColor"');
 const MIC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
+const CROSS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 const BIN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>';
 
 const $ = id => document.getElementById(id);
@@ -355,9 +356,11 @@ function row(it) {
   star.title = it.staple ? "Essentiel (revient après les courses)" : "Marquer comme essentiel";
   star.onclick = () => write(it.id, { staple: !it.staple });
   li.append(star);
-  const del = el("button", "icon", BIN);
-  del.type = "button"; del.setAttribute("aria-label", "Supprimer : " + it.name); del.title = "Supprimer";
-  del.onclick = () => remove(it.id);
+  // Retire l'article de la liste sans l'effacer : il reste dans son rayon et dans les suggestions.
+  // (La suppression définitive se fait dans « Gérer les rayons ».)
+  const del = el("button", "icon", CROSS);
+  del.type = "button"; del.setAttribute("aria-label", "Retirer de la liste : " + it.name); del.title = "Retirer de la liste";
+  del.onclick = () => write(it.id, { status: it.staple ? "stock" : "history" });
   li.append(del);
   return li;
 }

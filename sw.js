@@ -1,5 +1,5 @@
 // Garde l'appli disponible même sans réseau (la liste elle-même est gardée hors ligne par Firebase).
-const CACHE = "courses-v11";
+const CACHE = "courses-v12";
 const SHELL = ["./", "index.html", "app.js", "config.js", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png"];
 
 self.addEventListener("install", e => {
