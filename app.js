@@ -10,7 +10,10 @@ import { firebaseConfig, allowedEmails } from "./config.js";
 
 // Une seule liste commune pour la famille.
 const LIST = "lists/famille/items";
-const VERSION = "v4";
+const VERSION = "v5";
+// Couleur de chaque personne : vert pour Mattia, bleu clair pour Francesca.
+const PERSON_CLASS = { "kaanordagda5@gmail.com": "p-green", "francesca.jardini@gmail.com": "p-blue" };
+const NAME_CLASS = { mattia: "p-green", francesca: "p-blue" };
 
 // Rayon deviné à partir du nom, pour suivre l'ordre du magasin.
 const AISLES = [
@@ -50,7 +53,8 @@ function savedError() { try { return localStorage.getItem("lastError") || ""; } 
 let items = [];     // {id, name, aisle, status: "todo"|"cart"|"stock", staple}
 let col = null;
 let stopList = null;
-let me = "";       // prénom de la personne connectée, enregistré sur chaque article ajouté
+let me = "";
+let myEmail = "";       // prénom de la personne connectée, enregistré sur chaque article ajouté
 
 // --- Démarrage Firebase ---
 if (firebaseConfig.apiKey === "A_REMPLIR") {
@@ -111,6 +115,7 @@ onAuthStateChanged(auth, user => {
     return;
   }
   clearError(); deniedMessage = "";
+  myEmail = email;
   me = ((user.displayName || "").trim().split(/\s+/)[0]) || email.split("@")[0];
   $("signin").hidden = true; $("main").hidden = false;
   $("who").textContent = "Connecté : " + email + " · " + VERSION;
@@ -138,9 +143,9 @@ $("addForm").addEventListener("submit", ev => {
   input.value = "";
   input.focus();
   const same = items.find(i => norm(i.name) === norm(name));
-  if (same) { if (same.status !== "todo") write(same.id, { status: "todo", addedBy: me }); return; }
+  if (same) { if (same.status !== "todo") write(same.id, { status: "todo", addedBy: me, addedByEmail: myEmail }); return; }
   const nice = name.charAt(0).toUpperCase() + name.slice(1);
-  addDoc(col, { name: nice, aisle: guessAisle(nice), status: "todo", staple: false, addedBy: me, createdAt: Date.now() }).catch(failed);
+  addDoc(col, { name: nice, aisle: guessAisle(nice), status: "todo", staple: false, addedBy: me, addedByEmail: myEmail, createdAt: Date.now() }).catch(failed);
 });
 
 $("finish").addEventListener("click", () => {
@@ -151,7 +156,8 @@ $("finish").addEventListener("click", () => {
 
 // --- Affichage ---
 function row(it) {
-  const li = el("li", "row" + (it.status === "cart" ? " done" : ""));
+  const who = PERSON_CLASS[(it.addedByEmail || "").toLowerCase()] || NAME_CLASS[norm(it.addedBy || "")] || "";
+  const li = el("li", "row" + (it.status === "cart" ? " done" : "") + (who ? " " + who : ""));
   const tick = el("button", "tick");
   tick.type = "button";
   tick.setAttribute("aria-label", (it.status === "cart" ? "Remettre sur la liste : " : "Mettre dans le panier : ") + it.name);
@@ -205,7 +211,7 @@ function render() {
     const c = el("button", "chip", "<b>+</b> "); c.type = "button";
     c.append(document.createTextNode(i.name));
     c.setAttribute("aria-label", "Remettre sur la liste : " + i.name);
-    c.onclick = () => write(i.id, { status: "todo", addedBy: me });
+    c.onclick = () => write(i.id, { status: "todo", addedBy: me, addedByEmail: myEmail });
     sg.append(c);
   });
 

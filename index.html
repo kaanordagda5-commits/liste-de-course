@@ -22,6 +22,8 @@
   --accent-ink: #ffffff;
   --accent-soft: #e2f0e5;
   --warn: #b5432e;
+  --green-soft: #eef7f0; --green-tag: #cfe9d6; --green-ink: #1f5c33;
+  --blue-soft: #eef6fd; --blue-tag: #cfe6fa; --blue-ink: #1d5a87;
   --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
   --body: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
 }
@@ -29,12 +31,14 @@
   :root:not([data-theme="light"]) {
     --bg: #121a15; --card: #1b261f; --fg: #e6efe8; --muted: #9db0a2; --line: #2c3b31;
     --accent: #6cc58a; --accent-ink: #0d1a11; --accent-soft: #213a2a; --warn: #f08a72;
+    --green-soft: #1a2c21; --green-tag: #2a4a35; --green-ink: #a6e2b8; --blue-soft: #18252f; --blue-tag: #24405a; --blue-ink: #a9d6f5;
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #121a15; --card: #1b261f; --fg: #e6efe8; --muted: #9db0a2; --line: #2c3b31;
   --accent: #6cc58a; --accent-ink: #0d1a11; --accent-soft: #213a2a; --warn: #f08a72;
+    --green-soft: #1a2c21; --green-tag: #2a4a35; --green-ink: #a6e2b8; --blue-soft: #18252f; --blue-tag: #24405a; --blue-ink: #a9d6f5;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -119,7 +123,11 @@ li.row:first-child { border-top: 0; }
 .signin p { margin: 0; color: var(--muted); max-width: 40ch; }
 .who { font-size: 0.85rem; color: var(--muted); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .linkbtn { background: none; border: 0; color: var(--accent); font-weight: 700; padding: 4px 0; text-decoration: underline; }
-.by { margin-left: auto; flex: none; font-size: 0.78rem; color: var(--muted); padding-left: 8px; }
+.by { margin-left: auto; flex: none; font-size: 0.78rem; font-weight: 700; color: var(--muted); border-radius: 999px; padding: 2px 9px; }
+.p-green { background: var(--green-soft); }
+.p-green .by { background: var(--green-tag); color: var(--green-ink); }
+.p-blue { background: var(--blue-soft); }
+.p-blue .by { background: var(--blue-tag); color: var(--blue-ink); }
 #todo { display: flex; flex-direction: column; gap: 18px; }
 
 :root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
@@ -136,7 +144,7 @@ body { margin: 0; }
 
   <section class="signin" id="signin" hidden>
     <p>Connectez-vous avec votre compte Google pour voir et modifier la liste commune.</p>
-    <p class="note" id="ver">Version 4</p>
+    <p class="note" id="ver">Version 5</p>
     <button class="btn" id="signinBtn" type="button">Se connecter avec Google</button>
   </section>
 
