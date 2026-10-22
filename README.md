@@ -2,6 +2,8 @@
 
 Une liste de courses partagée pour deux, qui se met à jour en direct sur les deux téléphones et marche même sans réseau au fond du magasin.
 
+Adresse de l'appli : https://kaanordagda5-commits.github.io/liste-de-course/
+
 ## Comment c'est construit
 
 | Morceau | Rôle | Coût |
