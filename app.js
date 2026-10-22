@@ -10,7 +10,7 @@ import { firebaseConfig, allowedEmails } from "./config.js";
 
 // Une seule liste commune pour la famille.
 const LIST = "lists/famille/items";
-const VERSION = "v12";
+const VERSION = "v13";
 // Document spécial (dans la même collection) qui garde les réglages communs, comme l'ordre des rayons.
 const SETTINGS_ID = "_reglages";
 // Couleur de chaque personne : vert pour Mattia, bleu clair pour Francesca.
@@ -61,7 +61,7 @@ personStyle.textContent = `
 `;
 document.head.append(personStyle);
 
-// Rayon deviné à partir du nom, pour suivre l'ordre du magasin.
+// Rayons proposés au départ (les mots servaient à deviner le rayon ; désormais un nouvel article va dans « Inconnu »).
 const AISLES = [
   ["Fruits et légumes", "pomme banane poire orange citron fraise raisin tomate salade carotte oignon ail patate courgette poivron concombre avocat champignon herbe persil basilic legume fruit kiwi melon poireau epinard"],
   ["Frais", "lait beurre yaourt yogourt fromage creme oeuf jambon poulet viande steak poisson saumon lardon emmental mozzarella parmesan dessert"],
@@ -71,23 +71,17 @@ const AISLES = [
   ["Surgelés", "surgele glace frite pizza"],
   ["Maison et hygiène", "papier essuie lessive vaisselle eponge savon shampoing dentifrice brosse couche poubelle mouchoir douche deodorant"],
 ];
-const DEFAULT_ORDER = AISLES.map(a => a[0]).concat(["Divers"]);
+// « Inconnu » reçoit chaque nouvel article, pour qu'on le range ensuite dans le bon rayon.
+const UNKNOWN = "Inconnu";
+const DEFAULT_ORDER = [UNKNOWN].concat(AISLES.map(a => a[0]), ["Divers"]);
 // Un rayon a un identifiant fixe (stocké sur les articles) et un nom modifiable.
 let aisleOrder = DEFAULT_ORDER.slice();   // identifiants, dans l'ordre du magasin
 let aisleNames = {};                      // identifiant -> nom choisi (sinon le nom d'origine)
 let hiddenAisles = [];                    // rayons d'origine supprimés
 const aisleName = id => aisleNames[id] || id;
-// Rayon réellement affiché pour un article (un rayon supprimé renvoie vers « Divers »).
-const aisleOf = it => (it.aisle && aisleOrder.includes(it.aisle)) ? it.aisle : "Divers";
+// Rayon réellement affiché pour un article (sans rayon ou rayon supprimé : « Inconnu »).
+const aisleOf = it => (it.aisle && aisleOrder.includes(it.aisle)) ? it.aisle : UNKNOWN;
 const norm = s => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
-function guessAisle(name) {
-  const words = norm(name).split(/[^a-z]+/);
-  for (const [aisle, list] of AISLES) {
-    const keys = list.split(" ");
-    if (words.some(w => keys.some(k => w === k || w === k + "s" || w === k + "x"))) return hiddenAisles.includes(aisle) ? "Divers" : aisle;
-  }
-  return "Divers";
-}
 
 const STAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></svg>';
 const STAR_ON = STAR.replace('fill="none"', 'fill="currentColor"');
@@ -204,7 +198,7 @@ function addName(raw) {
   const same = items.find(i => norm(i.name) === norm(name));
   if (same) { if (same.status !== "todo") write(same.id, { status: "todo", addedBy: me, addedByEmail: myEmail }); return; }
   const nice = name.charAt(0).toUpperCase() + name.slice(1);
-  addDoc(col, { name: nice, aisle: guessAisle(nice), status: "todo", staple: false, addedBy: me, addedByEmail: myEmail, createdAt: Date.now() }).catch(failed);
+  addDoc(col, { name: nice, aisle: UNKNOWN, status: "todo", staple: false, addedBy: me, addedByEmail: myEmail, createdAt: Date.now() }).catch(failed);
 }
 
 const input = $("newItem");
@@ -293,9 +287,10 @@ function mergeOrder(saved) {
   const known = a => DEFAULT_ORDER.includes(a) || a.startsWith("r-");
   const list = Array.isArray(saved) ? saved.filter(a => known(a) && !hiddenAisles.includes(a)) : [];
   const rest = DEFAULT_ORDER.filter(a => !list.includes(a) && !hiddenAisles.includes(a));
-  const merged = list.concat(rest);
-  // « Divers » existe toujours et reste en dernier par défaut.
-  if (!merged.includes("Divers")) merged.push("Divers");
+  // « Inconnu » arrive en haut tant qu'on ne l'a pas déplacé.
+  const merged = list.includes(UNKNOWN) ? list.concat(rest) : [UNKNOWN].concat(list, rest.filter(x => x !== UNKNOWN));
+  // « Inconnu » existe toujours.
+  if (!merged.includes(UNKNOWN)) merged.unshift(UNKNOWN);
   return merged;
 }
 function saveSettings() {
@@ -314,13 +309,12 @@ function addAisle(name) {
   if (!clean) return;
   const id = "r-" + Date.now().toString(36);
   aisleNames = { ...aisleNames, [id]: clean };
-  const o = aisleOrder.filter(a => a !== "Divers"); o.push(id, "Divers");
-  aisleOrder = o;
+  aisleOrder = aisleOrder.concat([id]);
   saveSettings();
 }
 function deleteAisle(id) {
-  if (id === "Divers") return;
-  for (const it of items.filter(i => i.aisle === id)) write(it.id, { aisle: "Divers" });
+  if (id === UNKNOWN) return;
+  for (const it of items.filter(i => i.aisle === id)) write(it.id, { aisle: UNKNOWN });
   aisleOrder = aisleOrder.filter(a => a !== id);
   if (DEFAULT_ORDER.includes(id)) hiddenAisles = hiddenAisles.concat([id]);
   const n = { ...aisleNames }; delete n[id]; aisleNames = n;
@@ -436,7 +430,7 @@ function renderManager() {
     const move = d => { const o = aisleOrder.slice(); [o[i], o[i + d]] = [o[i + d], o[i]]; saveOrder(o); };
     up.onclick = () => move(-1); down.onclick = () => move(1);
     head.append(name, up, down);
-    if (id !== "Divers") {
+    if (id !== UNKNOWN) {
       const del = el("button", null, BIN); del.type = "button"; del.setAttribute("aria-label", "Supprimer le rayon " + aisleName(id));
       del.onclick = () => { confirmDelete = confirmDelete === id ? null : id; render(); };
       head.append(del);
@@ -444,7 +438,7 @@ function renderManager() {
     card.append(head);
     if (confirmDelete === id) {
       const c = el("div", "confirm");
-      const t = el("span"); t.textContent = "Supprimer « " + aisleName(id) + " » ? Ses articles iront dans « " + aisleName("Divers") + " »."; c.append(t);
+      const t = el("span"); t.textContent = "Supprimer « " + aisleName(id) + " » ? Ses articles iront dans « " + aisleName(UNKNOWN) + " »."; c.append(t);
       const yes = el("button", "danger"); yes.type = "button"; yes.textContent = "Supprimer"; yes.onclick = () => deleteAisle(id);
       const no = el("button", "ghost"); no.type = "button"; no.textContent = "Annuler"; no.onclick = () => { confirmDelete = null; render(); };
       c.append(yes, no); card.append(c);
