@@ -10,7 +10,7 @@ import { firebaseConfig, allowedEmails } from "./config.js";
 
 // Une seule liste commune pour la famille.
 const LIST = "lists/famille/items";
-const VERSION = "v17";
+const VERSION = "v18";
 // Document spécial (dans la même collection) qui garde les réglages communs, comme l'ordre des rayons.
 const SETTINGS_ID = "_reglages";
 // Couleur de chaque personne : orange saumon pour Mattia, bleu clair pour Francesca.
@@ -550,12 +550,12 @@ function renderCard() {
     cardView.append(img, tip);
   } else {
     const h = el("h2"); h.textContent = "Ajoutez votre carte " + currentCard;
-    const tip = el("p"); tip.textContent = "Prenez la carte en photo de face, bien à plat et sans reflet, avec le code-barres entièrement visible.";
+    const tip = el("p"); tip.textContent = "Choisissez une photo de la carte dans votre galerie, avec le code-barres bien net et entièrement visible.";
     cardView.append(h, tip);
   }
   const actions = el("div", "actions");
   const pick = el("button", mine ? "ghost" : "btn"); pick.type = "button";
-  pick.textContent = mine ? "Changer la photo" : "Prendre la photo";
+  pick.textContent = mine ? "Changer la photo" : "Choisir dans la galerie";
   pick.onclick = () => cardFile.click();
   const close = el("button", mine ? "btn" : "ghost"); close.type = "button"; close.textContent = "Fermer";
   close.onclick = closeCard;
