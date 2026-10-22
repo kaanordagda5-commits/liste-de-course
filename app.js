@@ -10,7 +10,7 @@ import { firebaseConfig, allowedEmails } from "./config.js";
 
 // Une seule liste commune pour la famille.
 const LIST = "lists/famille/items";
-const VERSION = "v6";
+const VERSION = "v7";
 // Couleur de chaque personne : vert pour Mattia, bleu clair pour Francesca.
 const PERSON_CLASS = { "kaanordagda5@gmail.com": "p-green", "francesca.jardini@gmail.com": "p-blue" };
 const NAME_CLASS = { mattia: "p-green", ma: "p-green", francesca: "p-blue" };
@@ -200,7 +200,10 @@ function render() {
 
   const box = $("todo"); box.innerHTML = "";
   if (!todo.length) {
-    box.append(el("div", "empty", "<strong>Rien à acheter pour l'instant</strong>Tapez un article au-dessus, ou touchez un essentiel dans « À racheter ? »."));
+    const hint = stock.length
+      ? "Tapez un article au-dessus, ou touchez un essentiel dans « À racheter ? »."
+      : "Tapez un article au-dessus. Astuce : l'étoile ☆ marque un article que vous achetez souvent ; après « Courses terminées », il apparaîtra ici dans « À racheter ? » pour le remettre en un geste.";
+    box.append(el("div", "empty", "<strong>Rien à acheter pour l'instant</strong>" + hint));
   } else {
     for (const aisle of ORDER) {
       const these = todo.filter(i => (i.aisle || "Divers") === aisle).sort(byName);
