@@ -4,13 +4,15 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-  collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot,
+  collection, doc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig, allowedEmails } from "./config.js";
 
 // Une seule liste commune pour la famille.
 const LIST = "lists/famille/items";
-const VERSION = "v7";
+const VERSION = "v8";
+// Document spécial (dans la même collection) qui garde les réglages communs, comme l'ordre des rayons.
+const SETTINGS_ID = "_reglages";
 // Couleur de chaque personne : vert pour Mattia, bleu clair pour Francesca.
 const PERSON_CLASS = { "kaanordagda5@gmail.com": "p-green", "francesca.jardini@gmail.com": "p-blue" };
 const NAME_CLASS = { mattia: "p-green", ma: "p-green", francesca: "p-blue" };
@@ -24,6 +26,19 @@ personStyle.textContent = `
   :root[data-theme="dark"] { --green-soft: #1d3324; --blue-soft: #1a2c3a; }
   li.row.p-green { background: var(--green-soft); }
   li.row.p-blue { background: var(--blue-soft); }
+  .typeahead { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .typeahead:empty { display: none; }
+  .mic { flex: none; width: 48px; min-height: 48px; border-radius: 12px; border: 1.5px solid var(--line); background: var(--card); color: var(--accent); display: grid; place-items: center; cursor: pointer; }
+  .mic svg { width: 22px; height: 22px; }
+  .mic.listening { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .aisle-select { flex: none; max-width: 46%; font: inherit; font-size: 0.9rem; padding: 8px; margin-right: 8px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--card); color: var(--fg); }
+  .order { background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .order li { display: flex; align-items: center; gap: 6px; padding: 6px 8px 6px 14px; border-top: 1px solid var(--line); }
+  .order li:first-child { border-top: 0; }
+  .order li span { flex: 1; min-width: 0; }
+  .order button { width: 40px; height: 40px; border-radius: 10px; border: 1.5px solid var(--line); background: none; color: var(--fg); font-size: 1.1rem; cursor: pointer; }
+  .order button:disabled { opacity: 0.3; cursor: default; }
+  .editbar { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 22px; }
 `;
 document.head.append(personStyle);
 
@@ -37,7 +52,8 @@ const AISLES = [
   ["Surgelés", "surgele glace frite pizza"],
   ["Maison et hygiène", "papier essuie lessive vaisselle eponge savon shampoing dentifrice brosse couche poubelle mouchoir douche deodorant"],
 ];
-const ORDER = AISLES.map(a => a[0]).concat(["Divers"]);
+const DEFAULT_ORDER = AISLES.map(a => a[0]).concat(["Divers"]);
+let aisleOrder = DEFAULT_ORDER.slice();
 const norm = s => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
 function guessAisle(name) {
   const words = norm(name).split(/[^a-z]+/);
@@ -50,6 +66,7 @@ function guessAisle(name) {
 
 const STAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></svg>';
 const STAR_ON = STAR.replace('fill="none"', 'fill="currentColor"');
+const MIC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
 const BIN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>';
 
 const $ = id => document.getElementById(id);
@@ -62,7 +79,9 @@ function setStatus(text, err) {
 function clearError() { try { localStorage.removeItem("lastError"); } catch (e) {} }
 function savedError() { try { return localStorage.getItem("lastError") || ""; } catch (e) { return ""; } }
 
-let items = [];     // {id, name, aisle, status: "todo"|"cart"|"stock", staple}
+// status : "todo" (à prendre), "cart" (dans le panier), "stock" (essentiel à racheter), "history" (déjà acheté, sert aux suggestions)
+let items = [];     // {id, name, aisle, status, staple}
+let editMode = false;
 let col = null;
 let stopList = null;
 let me = "";
@@ -134,7 +153,10 @@ onAuthStateChanged(auth, user => {
   setStatus("Chargement de la liste…");
   col = collection(db, LIST);
   stopList = onSnapshot(col, snap => {
-    items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const settings = all.find(d => d.id === SETTINGS_ID);
+    aisleOrder = mergeOrder(settings && settings.aisleOrder);
+    items = all.filter(d => d.id !== SETTINGS_ID && d.kind !== "settings");
     setStatus(snap.metadata.fromCache ? "Hors ligne : vos changements partiront dès le retour du réseau." : "");
     render();
   }, e => setStatus("La liste n'a pas pu être lue. Vérifiez les règles Firestore. (code : " + (e && e.code) + ")", true));
@@ -147,23 +169,98 @@ function failed(e) { setStatus("La modification n'est pas passée. (code : " + (
 const write = (id, patch) => updateDoc(doc(col, id), patch).catch(failed);
 const remove = id => deleteDoc(doc(col, id)).catch(failed);
 
-$("addForm").addEventListener("submit", ev => {
-  ev.preventDefault();
-  const input = $("newItem");
-  const name = input.value.trim().replace(/\s+/g, " ");
+// Ajoute un article, ou remet sur la liste un article déjà connu (il garde alors son rayon).
+function addName(raw) {
+  const name = raw.trim().replace(/\s+/g, " ");
   if (!name || !col) return;
-  input.value = "";
-  input.focus();
   const same = items.find(i => norm(i.name) === norm(name));
   if (same) { if (same.status !== "todo") write(same.id, { status: "todo", addedBy: me, addedByEmail: myEmail }); return; }
   const nice = name.charAt(0).toUpperCase() + name.slice(1);
   addDoc(col, { name: nice, aisle: guessAisle(nice), status: "todo", staple: false, addedBy: me, addedByEmail: myEmail, createdAt: Date.now() }).catch(failed);
+}
+
+const input = $("newItem");
+$("addForm").addEventListener("submit", ev => {
+  ev.preventDefault();
+  addName(input.value);
+  input.value = "";
+  renderTypeahead();
+  input.focus();
 });
 
-$("finish").addEventListener("click", () => {
-  for (const it of items.filter(i => i.status === "cart")) {
-    if (it.staple) write(it.id, { status: "stock" }); else remove(it.id);
+// --- Suggestions en tapant : tout ce qui a déjà été acheté ---
+input.removeAttribute("list");
+input.placeholder = "Ajouter un article";
+const typeahead = el("div", "typeahead");
+typeahead.id = "typeahead";
+$("addForm").after(typeahead);
+input.addEventListener("input", renderTypeahead);
+
+function renderTypeahead() {
+  const q = norm(input.value);
+  typeahead.innerHTML = "";
+  if (!q) return;
+  const known = items.filter(i => i.status !== "todo" && norm(i.name) !== q);
+  const starts = known.filter(i => norm(i.name).startsWith(q));
+  const inside = known.filter(i => !norm(i.name).startsWith(q) && norm(i.name).includes(q));
+  for (const it of starts.sort(byName).concat(inside.sort(byName)).slice(0, 6)) {
+    const c = el("button", "chip", "<b>+</b> "); c.type = "button";
+    c.append(document.createTextNode(it.name));
+    c.setAttribute("aria-label", "Ajouter : " + it.name);
+    c.onclick = () => { addName(it.name); input.value = ""; renderTypeahead(); input.focus(); };
+    typeahead.append(c);
   }
+}
+
+// --- Ajout à la voix ---
+const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (Recognition) {
+  const mic = el("button", "mic", MIC);
+  mic.type = "button"; mic.id = "mic";
+  mic.setAttribute("aria-label", "Dicter des articles");
+  mic.title = "Dicter des articles, par exemple : pâtes, tomates et parmesan";
+  $("addBtn").before(mic);
+  let rec = null;
+  mic.onclick = () => {
+    if (rec) { rec.stop(); return; }
+    rec = new Recognition();
+    rec.lang = "fr-FR"; rec.interimResults = false; rec.maxAlternatives = 1;
+    rec.onstart = () => { mic.classList.add("listening"); setStatus("Je vous écoute… dites par exemple « pâtes, tomates et parmesan »."); };
+    rec.onresult = e => {
+      const said = e.results[0][0].transcript;
+      const names = said.split(/,|\bet\b|\bpuis\b|\bensuite\b/i).map(x => x.trim()).filter(Boolean);
+      names.forEach(addName);
+      setStatus(names.length ? "Ajouté : " + names.join(", ") : "");
+    };
+    rec.onerror = e => {
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") setStatus("Le micro est bloqué. Autorisez-le pour ce site dans les réglages de Chrome.", true);
+      else if (e.error === "no-speech") setStatus("Je n'ai rien entendu. Touchez le micro et réessayez.");
+      else setStatus("La dictée n'a pas marché (" + e.error + ").", true);
+    };
+    rec.onend = () => { mic.classList.remove("listening"); rec = null; };
+    try { rec.start(); } catch (e) { rec = null; }
+  };
+}
+
+// --- Rayons : changer le rayon d'un article et l'ordre des rayons ---
+function mergeOrder(saved) {
+  const list = Array.isArray(saved) ? saved.filter(a => DEFAULT_ORDER.includes(a)) : [];
+  return list.concat(DEFAULT_ORDER.filter(a => !list.includes(a)));
+}
+function saveOrder(order) {
+  aisleOrder = order;
+  render();
+  setDoc(doc(col, SETTINGS_ID), { kind: "settings", aisleOrder: order }).catch(failed);
+}
+const editBar = el("div", "editbar");
+const editBtn = el("button", "ghost"); editBtn.type = "button"; editBtn.id = "editAisles";
+editBar.append(editBtn);
+$("main").querySelector(".who").before(editBar);
+editBtn.onclick = () => { editMode = !editMode; render(); };
+
+// Les articles achetés restent en mémoire ("history") pour les suggestions ; les essentiels vont dans « À racheter ? ».
+$("finish").addEventListener("click", () => {
+  for (const it of items.filter(i => i.status === "cart")) write(it.id, { status: it.staple ? "stock" : "history" });
 });
 
 // --- Affichage ---
@@ -177,6 +274,15 @@ function row(it) {
   const nm = el("span", "name"); nm.textContent = it.name; tick.append(nm);
   tick.onclick = () => write(it.id, { status: it.status === "cart" ? "todo" : "cart" });
   li.append(tick);
+  if (editMode) {
+    const sel = el("select", "aisle-select");
+    sel.setAttribute("aria-label", "Rayon de " + it.name);
+    for (const a of aisleOrder) { const o = document.createElement("option"); o.value = a; o.textContent = a; sel.append(o); }
+    sel.value = it.aisle || "Divers";
+    sel.onchange = () => write(it.id, { aisle: sel.value });
+    li.append(sel);
+    return li;
+  }
   const star = el("button", "icon", it.staple ? STAR_ON : STAR);
   star.type = "button"; star.setAttribute("aria-pressed", it.staple ? "true" : "false");
   star.setAttribute("aria-label", "Article essentiel : " + it.name);
@@ -205,7 +311,7 @@ function render() {
       : "Tapez un article au-dessus. Astuce : l'étoile ☆ marque un article que vous achetez souvent ; après « Courses terminées », il apparaîtra ici dans « À racheter ? » pour le remettre en un geste.";
     box.append(el("div", "empty", "<strong>Rien à acheter pour l'instant</strong>" + hint));
   } else {
-    for (const aisle of ORDER) {
+    for (const aisle of aisleOrder) {
       const these = todo.filter(i => (i.aisle || "Divers") === aisle).sort(byName);
       if (!these.length) continue;
       const g = el("div", "group");
@@ -229,8 +335,25 @@ function render() {
     sg.append(c);
   });
 
-  const dl = $("known"); dl.innerHTML = "";
-  stock.forEach(i => { const o = document.createElement("option"); o.value = i.name; dl.append(o); });
+  editBtn.textContent = editMode ? "Terminé" : "Ranger les rayons";
+  const old = $("orderBox"); if (old) old.remove();
+  if (editMode) {
+    const box2 = el("section"); box2.id = "orderBox"; box2.style.marginTop = "22px";
+    const h = el("h2"); h.textContent = "Ordre des rayons dans votre magasin"; box2.append(h);
+    const p = el("p", "note"); p.textContent = "Choisissez le rayon de chaque article dans la liste au-dessus, et rangez les rayons ici dans l'ordre où vous les traversez."; box2.append(p);
+    const ul = el("ul", "order"); ul.style.marginTop = "8px";
+    aisleOrder.forEach((a, i) => {
+      const li = el("li"); const t = el("span"); t.textContent = a; li.append(t);
+      const up = el("button", null, "↑"); up.type = "button"; up.disabled = i === 0; up.setAttribute("aria-label", "Monter " + a);
+      const down = el("button", null, "↓"); down.type = "button"; down.disabled = i === aisleOrder.length - 1; down.setAttribute("aria-label", "Descendre " + a);
+      const move = d => { const o = aisleOrder.slice(); [o[i], o[i + d]] = [o[i + d], o[i]]; saveOrder(o); };
+      up.onclick = () => move(-1); down.onclick = () => move(1);
+      li.append(up, down); ul.append(li);
+    });
+    box2.append(ul);
+    editBar.before(box2);
+  }
+  renderTypeahead();
 }
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
